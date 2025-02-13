@@ -1,12 +1,10 @@
 __asm("jmp kmain");
 
-// #include <cstring>
-#include <string.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stddef.h>
-
 #define VIDEO_BUF_PTR (0xb8000)
+
+/* ----------- Types ----------- */
+typedef unsigned int size_t;
+typedef unsigned char uint8_t;
 
 /* ----------- STD functions ----------- */
 
@@ -242,13 +240,16 @@ void downcase() {
 }
 
 void handle_line() {
-  char* s_buf = (char*)malloc(sizeof(char)*128);
+
 }
 
 
 /* ----------- Main ----------- */
 
-extern "C" int kmain() {
+#ifdef __cplusplus
+extern "C"  {
+#endif
+int kmain() {
   uint8_t* start_value = (uint8_t*)0x100;
   state.start_value_ = *start_value;
   
@@ -274,3 +275,7 @@ extern "C" int kmain() {
 
   return 0;
 }
+#ifdef __cplusplus
+}
+#endif
+
