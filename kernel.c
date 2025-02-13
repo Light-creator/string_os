@@ -6,6 +6,7 @@ __asm("jmp kmain");
 typedef unsigned int size_t;
 typedef unsigned char uint8_t;
 
+
 /* ----------- STD functions ----------- */
 
 void* memset(void* dst, int ch, size_t sz) {
@@ -19,6 +20,20 @@ size_t strlen(char* dst) {
   size_t count = 0;
   while(ptr++) count++;
   return count;
+}
+
+int strncmp(char* a, char* b, size_t n) {
+  while(*a && *b && n && (*a == *b)) {
+    a++; b++; n--;
+  }
+
+  if(n == 0) return 0;
+  else return *(uint8_t*)a - *(uint8_t*)b;
+}
+
+void strncpy(char* a, char* b, size_t n) {
+  size_t i = 0;
+  while(i++ < n && (*a++ = *b++)) {}
 }
 
 /* ----------- Interrupts ----------- */
@@ -140,7 +155,7 @@ char scan_codes[] = {
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0, 0,
   'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0, 0,
   'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', 0, 0, '\\',
-  'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'
+  'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, 0, 0, ' '
 };
 
 char upper_hash[128];
@@ -154,6 +169,9 @@ char lower_hash[128];
 #define LINE_MAX_SIZE 40
 
 #define ENTER_CODE 0x1c
+#define CAPS_CODE  0x3a
+
+#define DEFAULT_COLOR 0x07
 
 typedef struct user_state_t_ {
   size_t pos_x_;
@@ -162,12 +180,15 @@ typedef struct user_state_t_ {
   char curr_line_[LINE_MAX_SIZE];
 
   uint8_t start_value_; // bm | std
+  
+  uint8_t flag_caps_;
 } user_state_t;
 
 user_state_t state = {
   .pos_x_ = 0,
-  .pos_y_ = 2,
-  .curr_line_ = {0}
+  .pos_y_ = 0,
+  .curr_line_ = {0},
+  .flag_caps_ = 0
 };
 
 void handle_line();
@@ -192,54 +213,180 @@ void cursor_moveto(unsigned int strnum, unsigned int pos) {
   outb(CURSOR_PORT, 0x0E);
   outb(CURSOR_PORT + 1, (unsigned char)( (new_pos >> 8) & 0xFF));
 }
+ 
+void new_line() {
+  state.pos_x_ = 0;
+  state.pos_y_++;
+  memset(state.curr_line_, 0, LINE_MAX_SIZE);
+}
+
+void out_str_new_line(const char* str) {
+  out_str(DEFAULT_COLOR, str, state.pos_y_);
+  new_line();
+
+  cursor_moveto(state.pos_y_, state.pos_x_);
+}
+
+void out_str_default(const char* str) {
+  out_str(DEFAULT_COLOR, str, state.pos_y_);
+  
+  cursor_moveto(state.pos_y_, state.pos_x_);
+}
 
 void on_key(char scan_code) {
   if(state.pos_x_ >= LINE_MAX_SIZE) {
-    state.pos_x_ = 0;
-    state.pos_y_++;
-    memset(state.curr_line_, 0, LINE_MAX_SIZE);
+    return;
+    // new_line();
   }
   
   if(scan_code == ENTER_CODE) {
     handle_line();
   }
 
+  if(scan_code == CAPS_CODE) {
+    state.flag_caps_++;
+    state.flag_caps_ %= 2;
+    return;
+  }
+
   if(scan_codes[scan_code]) {
-    state.curr_line_[state.pos_x_++] = scan_codes[scan_code];
+    state.curr_line_[state.pos_x_++] = (state.flag_caps_) 
+      ? upper_hash[scan_codes[scan_code]] 
+      : scan_codes[scan_code];
   }
   
-  out_str(0x07, state.curr_line_, state.pos_y_);
-  cursor_moveto((unsigned int)state.curr_line_, (unsigned int)state.pos_x_);
+  out_str_default(state.curr_line_);
 }
 
 void init_upper() {
-  for(int i=0; i<128; i++) upper_hash[i] = i;
+  for(int i=0; i<128; i++) upper_hash[i] = ' ';
   for(int i=97; i<=122; i++) upper_hash[i] = i-32;
+  for(int i=65; i<=90; i++) upper_hash[i] = i;
 }
 
 
 void init_lower() {
-  for(int i=0; i<128; i++) upper_hash[i] = i;
-  for(int i=65; i<=90; i++) upper_hash[i] = i+32;
+  for(int i=0; i<128; i++) lower_hash[i] = ' ';
+  for(int i=65; i<=90; i++) lower_hash[i] = i+32;
+  for(int i=97; i<=122; i++) lower_hash[i] = i;
 }
 
 /* ----------- Main Logic ----------- */
 
-const char* g_test = "This is test string.";
+typedef struct parser_t_ {
+  char buf_[25][40];
+  size_t sz_;
+  
+
+} parser_t;
+
+parser_t parser = {
+  .buf_ = {0},
+  .sz_ = 0
+};
+
+void clear_parser() {
+  memset(parser.buf_, 0, sizeof(char)*25*40);
+  parser.sz_ = 0;
+}
+
+void print_parser() {
+  for(int i=0; i<parser.sz_; i++) {
+    out_str_new_line((const char*)parser.buf_[i]);
+  }
+}
+
+void parse_curr_line() {
+  clear_parser();
+  
+  char* ptr = state.curr_line_;
+  size_t curr_len = 0;
+  while(*ptr) {
+    if(*ptr == ' ') {
+      parser.sz_++;
+      curr_len = 0;
+    } else {
+      parser.buf_[parser.sz_][curr_len++] = *ptr;
+    }
+    ptr++;
+  }
+  parser.sz_++;
+
+}
+
 
 void info() {
-
+  out_str_new_line("---------------------------");
+  out_str_new_line("Welcome to StringOs");
+  out_str_new_line("Author: Ibadulaev Ivan");
+  out_str_new_line("Study Group: 5151003/30002");
+  out_str_new_line("---------------------------");
 }
 
 void upcase() {
+  new_line();
+  out_str_new_line("UPCASE OP");
+  char buf[LINE_MAX_SIZE];
+  
+  for(int i=1; i<parser.sz_; i++) {
+    memset(buf, 0, LINE_MAX_SIZE);
+    char* ptr = parser.buf_[i];
+    char* buf_ptr = buf;
 
+    while(*ptr) *buf_ptr++ = upper_hash[*ptr++];
+
+    out_str_new_line(buf);
+  }
 }
 
 void downcase() {
+  new_line();
 
+  char buf[LINE_MAX_SIZE];
+  
+  for(int i=1; i<parser.sz_; i++) {
+    memset(buf, 0, LINE_MAX_SIZE);
+    char* ptr = parser.buf_[i];
+    char* buf_ptr = buf;
+
+    while(*ptr) *buf_ptr++ = lower_hash[*ptr++];
+
+    out_str_new_line(buf);
+  }
 }
 
-void handle_line() {
+void titlize() {
+  new_line();
+
+  char buf[LINE_MAX_SIZE];
+  
+  // for(int i=1; i<parser.sz_; i++) {
+  //   memset(buf, 0, LINE_MAX_SIZE);
+  //   strncpy(buf, parser.buf_[i], LINE_MAX_SIZE);
+  //   buf[0] = upper_hash[buf[0]];
+  //   
+  //   size_t s_len = strlen(buf);
+  //   state.pos_x_ += s_len;
+  //   out_str_default(buf);
+  //   out_str_default(" ");
+  // }
+}
+
+void handle_line() {  
+  parse_curr_line();
+
+  if(strncmp(parser.buf_[0], "info", 4) == 0) {
+    info();
+  } else if(strncmp(parser.buf_[0], "upcase", 6) == 0) {
+    upcase();
+  } else if(strncmp(parser.buf_[0], "downcase", 8) == 0) {
+    downcase();
+  } else if(strncmp(parser.buf_[0], "titlize", 7) == 0) {
+    titlize();
+  } else {
+    new_line();
+  }
+
 
 }
 
@@ -263,12 +410,8 @@ int kmain() {
   init_upper();
   init_lower();
 
-  handle_line();
+  info();
 
-  const char* hello = "Welcome to Sring Os";
-  out_str(0x07, hello, 0);
-  out_str(0x07, g_test, 1);
-  
   while(1) asm("hlt");
 
   intr_disable();

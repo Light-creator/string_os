@@ -1,13 +1,13 @@
 # CC = gcc
-CC = gcc
-AS = as
-LD = ld
-QEMU = qemu-system-i386
+# CC = gcc
+# AS = as
+# LD = ld
+# QEMU = qemu-system-i386
 
-# CC = /opt/homebrew/Cellar/i686-elf-gcc/14.2.0/bin/i686-elf-gcc
-# AS = /opt/homebrew/Cellar/i686-elf-binutils/2.43.1/bin/i686-elf-as
-# LD = /opt/homebrew/Cellar/i686-elf-binutils/2.43.1/bin/i686-elf-ld
-# QEMU = /opt/homebrew/bin/qemu-system-i386
+CC = /opt/homebrew/Cellar/i686-elf-gcc/14.2.0/bin/i686-elf-gcc
+AS = /opt/homebrew/Cellar/i686-elf-binutils/2.43.1/bin/i686-elf-as
+LD = /opt/homebrew/Cellar/i686-elf-binutils/2.43.1/bin/i686-elf-ld
+QEMU = /opt/homebrew/bin/qemu-system-i386
 
 
 SRC_ASM = bootsect.asm
