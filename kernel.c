@@ -16,9 +16,9 @@ void* memset(void* dst, int ch, size_t sz) {
 }
 
 size_t strlen(char* dst) {
-  char* ptr = (char*)dst;
+  char* ptr = dst;
   size_t count = 0;
-  while(ptr++) count++;
+  while(*ptr++) count++;
   return count;
 }
 
@@ -33,7 +33,9 @@ int strncmp(char* a, char* b, size_t n) {
 
 void strncpy(char* a, char* b, size_t n) {
   size_t i = 0;
-  while(i++ < n && (*a++ = *b++)) {}
+  while(i++ < n && *b) {
+    *a++ = *b++;
+  }
 }
 
 /* ----------- Interrupts ----------- */
@@ -167,6 +169,8 @@ char lower_hash[128];
 #define VIDEO_WIDTH (80) // Ширина текстового экрана
 
 #define LINE_MAX_SIZE 40
+#define ALPH_SIZE     26
+#define ASCCI_SIZE    128
 
 #define ENTER_CODE 0x1c
 #define CAPS_CODE  0x3a
@@ -271,6 +275,22 @@ void init_lower() {
   for(int i=97; i<=122; i++) lower_hash[i] = i;
 }
 
+size_t to_string(int num, char* dst) {
+  char stack[LINE_MAX_SIZE];
+  size_t sz = 0;
+  while(num) {
+    out_str_new_line("check 1");
+    stack[sz++] = (num%10)+'0';
+    num /= 10;
+  }
+
+  size_t tmp = sz;
+
+  while(sz) *dst++ = stack[sz--];
+
+  return tmp;
+}
+
 /* ----------- Main Logic ----------- */
 
 typedef struct parser_t_ {
@@ -280,9 +300,23 @@ typedef struct parser_t_ {
 
 } parser_t;
 
+typedef struct template_t_ {
+  char buf_[LINE_MAX_SIZE];
+  size_t type_;
+  int table_[26];
+  uint8_t flag_loaded_;
+} template_t;
+
 parser_t parser = {
   .buf_ = {0},
   .sz_ = 0
+};
+
+template_t template = {
+  .buf_ = {0},
+  .type_ = 0,
+  .table_ = {0},
+  .flag_loaded_ = 0
 };
 
 void clear_parser() {
@@ -358,18 +392,84 @@ void downcase() {
 void titlize() {
   new_line();
 
-  char buf[LINE_MAX_SIZE];
+  char buf[LINE_MAX_SIZE*2];
+  char* ptr = buf;
+  for(int i=1; i<=parser.sz_; i++) {
+    size_t s_len = strlen(parser.buf_[i]);
+    strncpy(ptr, parser.buf_[i], s_len);
+
+    *ptr = upper_hash[*ptr];
+
+    ptr += s_len;
+    *ptr = ' ';
+    ptr++;
+  }
+
+  out_str_new_line(buf);
+}
+
+void print_template() {
+  char buf[LINE_MAX_SIZE*2] = "Template  '";
+  char* ptr = buf+11;
   
-  // for(int i=1; i<parser.sz_; i++) {
-  //   memset(buf, 0, LINE_MAX_SIZE);
-  //   strncpy(buf, parser.buf_[i], LINE_MAX_SIZE);
-  //   buf[0] = upper_hash[buf[0]];
-  //   
-  //   size_t s_len = strlen(buf);
-  //   state.pos_x_ += s_len;
-  //   out_str_default(buf);
-  //   out_str_default(" ");
-  // }
+  size_t t_len = strlen(template.buf_);
+  strncpy(ptr, template.buf_, t_len);
+  ptr += t_len;
+  *ptr++ = '\'';
+  
+  strncpy(ptr, " loaded.", 8);
+
+  out_str_new_line(buf);
+ 
+  // BM
+  if(template.type_) {
+    memset(buf, 0, LINE_MAX_SIZE*2);
+    ptr = buf;
+
+    for(int i=0; i<t_len; i++) {
+      *ptr++ = template.buf_[i];
+      *ptr++ = ':';
+      size_t num_len = to_string(template.table_[template.buf_[i]], ptr);
+      ptr += num_len;
+      *ptr++ = ' ';
+    }
+
+    out_str_new_line(buf);
+  }
+}
+
+void create_template() {
+  new_line();
+  strncpy(template.buf_, parser.buf_[1], LINE_MAX_SIZE);
+  out_str_new_line(template.buf_);
+  memset(template.table_, 0, ALPH_SIZE*sizeof(int));
+
+
+  // BM
+  if(template.type_) {
+    size_t s_len = strlen(template.buf_);
+    size_t counter = 1;
+    for(int i=s_len-2; i>=0; i--) {
+      if(template.table_[template.buf_[i]-'a'] == 0)
+        template.table_[template.buf_[i]-'a'] = counter;
+      counter++;
+    }
+
+    template.table_[template.buf_[s_len-1]] = template.table_[template.buf_[s_len-1]]
+      ? template.table_[template.buf_[s_len-1]]
+      : counter;
+  }
+
+  print_template();
+}
+
+void search() {
+  if(!template.flag_loaded_) {
+    out_str_new_line("Template was not been loaded...");
+    return;
+  }
+
+  // TODO
 }
 
 void handle_line() {  
@@ -383,10 +483,13 @@ void handle_line() {
     downcase();
   } else if(strncmp(parser.buf_[0], "titlize", 7) == 0) {
     titlize();
+  } else if(strncmp(parser.buf_[0], "template", 8) == 0) {
+    create_template();
+  } else if(strncmp(parser.buf_[0], "search", 6) == 0) {
+    search();
   } else {
     new_line();
   }
-
 
 }
 
@@ -399,6 +502,7 @@ extern "C"  {
 int kmain() {
   uint8_t* start_value = (uint8_t*)0x100;
   state.start_value_ = *start_value;
+  template.type_ = 1;
   
   intr_disable();
   intr_init();
