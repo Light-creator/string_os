@@ -9,6 +9,8 @@ typedef unsigned char uint8_t;
 
 /* ----------- STD functions ----------- */
 
+#define MAX(a, b) (a)>(b) ? (a) : (b)
+
 void* memset(void* dst, int ch, size_t sz) {
   char* ptr = (char*)dst;
   while(sz--) *ptr++ = ch;
@@ -172,8 +174,9 @@ char lower_hash[128];
 #define ALPH_SIZE     26
 #define ASCCI_SIZE    128
 
-#define ENTER_CODE 0x1c
-#define CAPS_CODE  0x3a
+#define ENTER_CODE      0x1c
+#define CAPS_CODE       0x3a
+#define BACKSPACE_CODE  0x0e
 
 #define DEFAULT_COLOR 0x07
 
@@ -253,6 +256,17 @@ void on_key(char scan_code) {
     return;
   }
 
+  if(scan_code == BACKSPACE_CODE) {
+    if(state.pos_x_ > 1) {
+      state.curr_line_[(state.pos_x_--)-1] = ' ';
+      state.curr_line_[state.pos_x_+1] = '\0';
+    } else if(state.pos_x_ == 1) {
+      state.curr_line_[(state.pos_x_--)-1] = ' ';
+    } else {
+      state.curr_line_[state.pos_x_] = '\0';
+    }
+  }
+
   if(scan_codes[scan_code]) {
     state.curr_line_[state.pos_x_++] = (state.flag_caps_) 
       ? upper_hash[scan_codes[scan_code]] 
@@ -276,22 +290,30 @@ void init_lower() {
 }
 
 size_t to_string(int num, char* dst) {
+  if(num == 0) {
+    *dst = '0';
+    return 1;
+  }
+
   char stack[LINE_MAX_SIZE];
-  size_t sz = 0;
+  int sz = 0;
   while(num) {
-    out_str_new_line("check 1");
     stack[sz++] = (num%10)+'0';
     num /= 10;
   }
 
   size_t tmp = sz;
-
-  while(sz) *dst++ = stack[sz--];
+  
+  sz--;
+  while(sz >= 0) *dst++ = stack[sz--];
 
   return tmp;
 }
 
 /* ----------- Main Logic ----------- */
+
+#define STD_ALGO 1
+#define BM_ALGO  0
 
 typedef struct parser_t_ {
   char buf_[25][40];
@@ -303,7 +325,8 @@ typedef struct parser_t_ {
 typedef struct template_t_ {
   char buf_[LINE_MAX_SIZE];
   size_t type_;
-  int table_[26];
+  size_t sz_;
+  int table_[ASCCI_SIZE];
   uint8_t flag_loaded_;
 } template_t;
 
@@ -315,6 +338,7 @@ parser_t parser = {
 template_t template = {
   .buf_ = {0},
   .type_ = 0,
+  .sz_ = 0,
   .table_ = {0},
   .flag_loaded_ = 0
 };
@@ -421,8 +445,7 @@ void print_template() {
 
   out_str_new_line(buf);
  
-  // BM
-  if(template.type_) {
+  if(template.type_ == BM_ALGO) {
     memset(buf, 0, LINE_MAX_SIZE*2);
     ptr = buf;
 
@@ -440,27 +463,60 @@ void print_template() {
 
 void create_template() {
   new_line();
+  memset(template.table_, 0, ASCCI_SIZE*sizeof(int));
+  memset(template.buf_, 0, LINE_MAX_SIZE);
+  
   strncpy(template.buf_, parser.buf_[1], LINE_MAX_SIZE);
   out_str_new_line(template.buf_);
-  memset(template.table_, 0, ALPH_SIZE*sizeof(int));
 
+  size_t s_len = strlen(template.buf_);
+  template.sz_ = s_len;
 
-  // BM
-  if(template.type_) {
-    size_t s_len = strlen(template.buf_);
+  if(template.type_ == BM_ALGO) {
     size_t counter = 1;
     for(int i=s_len-2; i>=0; i--) {
-      if(template.table_[template.buf_[i]-'a'] == 0)
-        template.table_[template.buf_[i]-'a'] = counter;
+      if(template.table_[template.buf_[i]] == 0)
+        template.table_[template.buf_[i]] = counter;
       counter++;
     }
 
     template.table_[template.buf_[s_len-1]] = template.table_[template.buf_[s_len-1]]
       ? template.table_[template.buf_[s_len-1]]
-      : counter;
+      : MAX(counter-1, 1);
   }
 
+  template.flag_loaded_ = 1;
+
   print_template();
+}
+
+void print_found_at_pos(size_t pos) {
+  new_line();
+  char buf[LINE_MAX_SIZE] = "Found '";
+  char* ptr = buf+7;
+
+  strncpy(ptr, template.buf_, template.sz_);
+  ptr += template.sz_;
+  *ptr++ = '\'';
+  
+  strncpy(ptr, " at pos: ", 9);
+  ptr += 9;
+  size_t num_len = to_string(pos, ptr);
+  ptr += num_len;
+  
+  out_str_new_line(buf);
+}
+
+void print_not_found() {
+  new_line();
+  char buf[LINE_MAX_SIZE] = "Not Found '";
+  char* ptr = buf+11;
+
+  strncpy(ptr, template.buf_, template.sz_);
+  ptr += template.sz_;
+  *ptr++ = '\'';
+
+  out_str_new_line(buf);
 }
 
 void search() {
@@ -469,7 +525,70 @@ void search() {
     return;
   }
 
-  // TODO
+  size_t s_len = strlen(parser.buf_[1]);
+  if(template.sz_ > s_len) {
+    out_str_new_line("Template size too big...");
+    return;
+  }
+
+  char* str = parser.buf_[1];
+
+  if(template.type_ == STD_ALGO) {
+    for(int i=0; i<s_len; i++) {
+      size_t counter = 0;
+      for(int j=0; j<template.sz_ && i+j<s_len; j++) {
+        if(template.buf_[j] != str[i+j]) break;
+        counter++;
+      }
+
+      if(counter == template.sz_) {
+        print_found_at_pos(i);
+        return;
+      }
+    }
+
+    print_not_found();
+  } else {
+    size_t curr = template.sz_-1;
+    int i = curr;
+    size_t k = 0;
+    while(i < s_len) {
+
+      int j = curr;
+      k = 0;
+      for(; j>0; j--) {
+        out_str_new_line("check 1");
+        if(str[i-k] != template.buf_[j]) {
+          if(j == curr) 
+            i += (template.table_[str[i]]) ? template.table_[str[i]] : template.sz_;
+          else
+            i += template.table_[template.buf_[j]];
+          
+          break;
+        }
+
+        k++;
+
+        if(j == 0) {
+          print_found_at_pos(i-k+1);
+          return;
+        }
+      }
+
+
+      // if(str[i+curr] != template.buf_[curr]) {
+      //   if(curr == template.sz_-1) {
+      //     i += template.sz_;
+      //   } else {
+      //     i += template.table_[template.buf_[curr]];
+      //   }
+      // } else {
+      //   curr--;
+      // }
+    }
+
+    print_not_found();
+  }
 }
 
 void handle_line() {  
@@ -485,7 +604,7 @@ void handle_line() {
     titlize();
   } else if(strncmp(parser.buf_[0], "template", 8) == 0) {
     create_template();
-  } else if(strncmp(parser.buf_[0], "search", 6) == 0) {
+  } else if(strncmp(parser.buf_[0], "search", 7) == 0) {
     search();
   } else {
     new_line();
@@ -502,7 +621,7 @@ extern "C"  {
 int kmain() {
   uint8_t* start_value = (uint8_t*)0x100;
   state.start_value_ = *start_value;
-  template.type_ = 1;
+  template.type_ = *start_value;
   
   intr_disable();
   intr_init();

@@ -110,72 +110,56 @@ read_input:
   movb $0x0e, %ah
   int $0x10
   
+  # if compination == "b"
+  movb $98, %bl
+  cmpb %al, %bl
+  jne cmp_std
+
+  movb $0x00, %ah
+  int $0x16
+   
+  # if combination == "bm"
   movb $109, %bl
   cmpb %al, %bl
-  jne second_cmp
-
+  jne cmp_std
+  
+  # save flag 0 to 0x100
   movw $0x100, %bx 
   movw $0, 0(%bx) 
 
   jmp end_read_input
 
-  movb hash+98, %cl
-  movb $1, %bl
-  cmpb %cl, %bl
+cmp_std:
+  # if combination == "s"
+  movb $115, %bl
+  cmpb %al, %bl
   jne read_input
+
+  movb $0x00, %ah
+  int $0x16
   
+  # if combination == "st"
+  movb $116, %bl
+  cmpb %al, %bl
+  jne read_input
 
-
-second_cmp:
+  movb $0x00, %ah
+  int $0x16
+  
+  # if combination == "std"
   movb $100, %bl
   cmpb %al, %bl
-  jne set_hash
-
+  jne read_input
+  
+  # save flag 1 to 0x100
   movw $0x100, %bx 
   movw $1, 0(%bx)
 
   jmp end_read_input
 
-  # movw $115, %si
-  # call read_hash
-  
-  movb hash+115, %cl
-  movb $1, %bl
-  cmpb %cl, %bl
-  jne read_input
-
-  # movw $116, %si
-  # call read_hash
-  
-  movb hash+116, %cl
-  movb $1, %bl
-  cmpb %cl, %bl
-  jne read_input
-    
-
-
-set_hash:
-  movb $0x0e, %ah
-  int $0x10
-  
-  movsbw %al, %bx 
-  movb $1, hash(%bx)
-
-  jmp read_input
-
 end_read_input:
   ret
 
-insert_hash:
-  leaw hash(%si), %bx
-  movb $1, 0(%bx) 
-  ret
-
-read_hash:
-  movb hash(%si), %al
-  ret
-
-  
 gdt:
   .byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
   .byte 0xff, 0xff, 0x00, 0x00, 0x00, 0x9A, 0xCF, 0x00
@@ -183,7 +167,6 @@ gdt:
 gdt_info:
   .word gdt_info - gdt
   .word gdt, 0
-
 
 
 bios_start_msg:
