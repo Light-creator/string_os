@@ -2,14 +2,46 @@ __asm("jmp kmain");
 
 #define VIDEO_BUF_PTR (0xb8000)
 
+/* ----------- Defines ----------- */
+
+#define MAX(a, b) (a)>(b) ? (a) : (b)
+
+#define PIC1_PORT (0x20)
+
+#define IDT_TYPE_INTR (0x0E)
+#define IDT_TYPE_TRAP (0x0F)
+
+// Селектор секции кода, установленный загрузчиком ОС
+#define GDT_CS (0x8)
+
+#define CURSOR_PORT (0x3D4)
+#define VIDEO_WIDTH (80) // Ширина текстового экрана
+
+#define LINE_MAX_SIZE 40
+#define PARSER_CAP    25
+#define ALPH_SIZE     26
+#define ASCCI_SIZE    128
+
+#define ENTER_CODE      0x1c
+#define CAPS_CODE       0x3a
+#define BACKSPACE_CODE  0x0e
+
+#define DEFAULT_COLOR 0x07
+
+#define STD_ALGO 1
+#define BM_ALGO  0
+
+#define WINDOW_COLS 80
+#define WINDOW_ROWS 25
+
 /* ----------- Types ----------- */
-typedef unsigned int size_t;
-typedef unsigned char uint8_t;
+typedef unsigned int    size_t;
+typedef unsigned char   uint8_t;
+typedef unsigned short  uint16_t;
 
 
 /* ----------- STD functions ----------- */
 
-#define MAX(a, b) (a)>(b) ? (a) : (b)
 
 void* memset(void* dst, int ch, size_t sz) {
   char* ptr = (char*)dst;
@@ -42,14 +74,6 @@ void strncpy(char* a, char* b, size_t n) {
 
 /* ----------- Interrupts ----------- */
 
-#define PIC1_PORT (0x20)
-
-#define IDT_TYPE_INTR (0x0E)
-#define IDT_TYPE_TRAP (0x0F)
-
-// Селектор секции кода, установленный загрузчиком ОС
-#define GDT_CS (0x8)
-
 // Структура описывает данные об обработчике прерывания
 struct idt_entry {
   unsigned short base_lo; // Младшие биты адреса обработчика
@@ -75,6 +99,7 @@ void default_intr_handler() {
   // ... (реализация обработки)
   asm("popa; leave; iret");
 }
+
 
 typedef void (*intr_handler)();
 
@@ -120,6 +145,10 @@ static inline void outb (unsigned short port, unsigned char data) {
   asm volatile ("outb %b0, %w1" : : "a" (data), "Nd" (port));
 }
 
+static inline void outw (uint16_t port, uint16_t data) {
+  asm volatile ("outw %w0, %w1" : : "a" (data), "Nd" (port));
+}
+
 void on_key(char scan_code);
 
 void keyb_process_keys() {
@@ -154,7 +183,7 @@ void keyb_init() {
 /* ----------- Hashes ----------- */
 
 // http://www.techhelpmanual.com/57-keyboard_scan_codes.html
-char scan_codes[] = {
+char scan_codes[128] = {
   0, 0,
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0, 0,
   'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0, 0,
@@ -167,18 +196,6 @@ char lower_hash[128];
 
 /* ----------- Utils ----------- */
 
-#define CURSOR_PORT (0x3D4)
-#define VIDEO_WIDTH (80) // Ширина текстового экрана
-
-#define LINE_MAX_SIZE 40
-#define ALPH_SIZE     26
-#define ASCCI_SIZE    128
-
-#define ENTER_CODE      0x1c
-#define CAPS_CODE       0x3a
-#define BACKSPACE_CODE  0x0e
-
-#define DEFAULT_COLOR 0x07
 
 typedef struct user_state_t_ {
   size_t pos_x_;
@@ -210,6 +227,8 @@ void out_str(int color, const char* ptr, unsigned int strnum) {
     ptr++;
   }
 }
+
+
 
 // Функция переводит курсор на строку strnum (0 – самая верхняя) в позицию 
 // pos на этой строке (0 – самое левое положение).
@@ -277,16 +296,20 @@ void on_key(char scan_code) {
 }
 
 void init_upper() {
-  for(int i=0; i<128; i++) upper_hash[i] = ' ';
+  for(int i=0; i<128; i++) upper_hash[i] = i;
   for(int i=97; i<=122; i++) upper_hash[i] = i-32;
   for(int i=65; i<=90; i++) upper_hash[i] = i;
 }
 
 
 void init_lower() {
-  for(int i=0; i<128; i++) lower_hash[i] = ' ';
+  for(int i=0; i<128; i++) lower_hash[i] = i;
   for(int i=65; i<=90; i++) lower_hash[i] = i+32;
   for(int i=97; i<=122; i++) lower_hash[i] = i;
+}
+
+void init_codes_table() {
+  for(int i=58; i<ASCCI_SIZE; i++) scan_codes[i] = 0;
 }
 
 size_t to_string(int num, char* dst) {
@@ -312,14 +335,9 @@ size_t to_string(int num, char* dst) {
 
 /* ----------- Main Logic ----------- */
 
-#define STD_ALGO 1
-#define BM_ALGO  0
-
 typedef struct parser_t_ {
-  char buf_[25][40];
+  char buf_[PARSER_CAP][LINE_MAX_SIZE];
   size_t sz_;
-  
-
 } parser_t;
 
 typedef struct template_t_ {
@@ -344,13 +362,25 @@ template_t template = {
 };
 
 void clear_parser() {
-  memset(parser.buf_, 0, sizeof(char)*25*40);
+  memset(parser.buf_, 0, sizeof(char)*PARSER_CAP*LINE_MAX_SIZE);
   parser.sz_ = 0;
 }
 
 void print_parser() {
   for(int i=0; i<parser.sz_; i++) {
     out_str_new_line((const char*)parser.buf_[i]);
+  }
+}
+
+void clear_screen() {
+  char clear_buf[WINDOW_COLS+1];
+  for(int i=0; i<WINDOW_COLS; i++) clear_buf[i] = ' ';
+  clear_buf[WINDOW_COLS] = '\0';
+
+  memset(state.curr_line_, 0, LINE_MAX_SIZE);
+
+  for(int i=0; i<WINDOW_ROWS; i++) {
+    out_str(DEFAULT_COLOR, clear_buf, i);
   }
 }
 
@@ -383,7 +413,6 @@ void info() {
 
 void upcase() {
   new_line();
-  out_str_new_line("UPCASE OP");
   char buf[LINE_MAX_SIZE];
   
   for(int i=1; i<parser.sz_; i++) {
@@ -418,7 +447,7 @@ void titlize() {
 
   char buf[LINE_MAX_SIZE*2];
   char* ptr = buf;
-  for(int i=1; i<=parser.sz_; i++) {
+  for(int i=1; i<parser.sz_; i++) {
     size_t s_len = strlen(parser.buf_[i]);
     strncpy(ptr, parser.buf_[i], s_len);
 
@@ -557,10 +586,9 @@ void search() {
       int j = curr;
       k = 0;
       for(; j>0; j--) {
-        out_str_new_line("check 1");
         if(str[i-k] != template.buf_[j]) {
           if(j == curr) 
-            i += (template.table_[str[i]]) ? template.table_[str[i]] : template.sz_;
+            i += (template.table_[str[i]] != 0) ? template.table_[str[i]] : template.sz_;
           else
             i += template.table_[template.buf_[j]];
           
@@ -568,31 +596,56 @@ void search() {
         }
 
         k++;
-
-        if(j == 0) {
-          print_found_at_pos(i-k+1);
-          return;
-        }
       }
 
-
-      // if(str[i+curr] != template.buf_[curr]) {
-      //   if(curr == template.sz_-1) {
-      //     i += template.sz_;
-      //   } else {
-      //     i += template.table_[template.buf_[curr]];
-      //   }
-      // } else {
-      //   curr--;
-      // }
+      if(j == 0) {
+        print_found_at_pos(i-k);
+        return;
+      }
     }
 
     print_not_found();
   }
 }
 
+void test_upcase_1();
+void test_downcase_1();
+void test_titlize_1();
+
+void tests_search_1();
+void tests_search_2();
+void tests_search_3();
+void tests_search_4();
+
+void tests_base() {
+  test_upcase_1();
+  test_downcase_1();
+  test_titlize_1();
+}
+
+void tests_search() {
+  tests_search_1();
+  tests_search_2();
+  tests_search_3();
+  tests_search_4();
+}
+
+void shutdown() {
+  outw (0x604, 0x2000);
+}
+
+void clear_all() {
+  clear_screen();
+  state.pos_x_ = 0; state.pos_y_ = 0;
+  cursor_moveto(0, 0);
+}
+
 void handle_line() {  
   parse_curr_line();
+
+  if(state.pos_y_ >= WINDOW_ROWS-1) {
+    clear_all();
+  }
 
   if(strncmp(parser.buf_[0], "info", 4) == 0) {
     info();
@@ -606,12 +659,21 @@ void handle_line() {
     create_template();
   } else if(strncmp(parser.buf_[0], "search", 7) == 0) {
     search();
+  } else if(strncmp(parser.buf_[0], "shutdown", 8) == 0) {
+    shutdown();
+  } else if(strncmp(parser.buf_[0], "clear", 5) == 0) {
+    clear_all();
+  } else if(strncmp(parser.buf_[0], "tests", 5) == 0) {
+    if(strncmp(parser.buf_[1], "search", 6) == 0) {
+      tests_search();
+    } else if(strncmp(parser.buf_[1], "base", 4) == 0){
+
+      tests_base();
+    }
   } else {
     new_line();
   }
-
 }
-
 
 /* ----------- Main ----------- */
 
@@ -632,6 +694,7 @@ int kmain() {
   // Init hashes
   init_upper();
   init_lower();
+  init_codes_table();
 
   info();
 
@@ -645,3 +708,127 @@ int kmain() {
 }
 #endif
 
+
+void test_upcase_1() {
+  out_str_new_line("Test Upcase 1: [Input]   -> AbCaByuYuOpQ");
+  out_str_new_line("Test Upcase 1: [Exp Out] -> ABCABYUYUOPQ");
+
+  clear_parser();
+  strncpy(parser.buf_[1], "AbCaByuYuOpQ", 12);
+  parser.sz_ = 2;
+
+  upcase();
+  out_str_new_line("----------------");
+}
+
+void test_downcase_1() {
+  out_str_new_line("Test Downcase 1: [Input]   -> AbCaByu-=:!ewqEWQ");
+  out_str_new_line("Test Downcase 1: [Exp Out] -> abcabyu-=:!ewqewq");
+
+  clear_parser();
+  strncpy(parser.buf_[1], "AbCaByu-=:!ewqEWQ", 17);
+  parser.sz_ = 2;
+
+  downcase();
+  out_str_new_line("----------------");
+}
+
+void test_titlize_1() {
+  out_str_new_line("Test Titlize 1: [Input]   -> abC [byu-= e:!ew EqEWQ");
+  out_str_new_line("Test Titlize 1: [Exp Out] -> AbC [byu-= E:!ew Eqewq");
+  
+  clear_parser();
+  strncpy(parser.buf_[1], "abC", 3);
+  strncpy(parser.buf_[2], "[byu-=", 6);
+  strncpy(parser.buf_[3], "e:!ew", 5);
+  strncpy(parser.buf_[4], "Eqewq", 5);
+  parser.sz_ = 5;
+
+  titlize();
+  out_str_new_line("----------------");
+}
+
+void tests_search_1() {
+  out_str_new_line("Template: 'ab' | algorithm: std");
+  out_str_new_line("Test Search 1: [Input]   -> aaaaaabaab");
+  out_str_new_line("Test Search 1: [Exp Out] -> pos: 5");
+  
+  clear_parser();
+  size_t old = template.type_;
+
+  template.flag_loaded_ = 1;
+  template.type_ = STD_ALGO;  
+  strncpy(parser.buf_[1], "aaaaaabaab", 10);
+  strncpy(template.buf_, "ab", 2);
+  template.sz_ = 2;
+  parser.sz_ = 10;
+
+  search();
+  out_str_new_line("----------------");
+  
+  template.type_ = old;
+}
+
+void tests_search_2() {
+  out_str_new_line("Template: 'ab' | algorithm: bm");
+  out_str_new_line("Test Search 2: [Input]   -> aaaaaabaab");
+  out_str_new_line("Test Search 2: [Exp Out] -> pos: 5");
+  
+  clear_parser();
+  size_t old = template.type_;
+  
+  template.flag_loaded_ = 1;
+  template.type_ = STD_ALGO;  
+  strncpy(template.buf_, "ab", 2);
+  strncpy(parser.buf_[1], "aaaaaabaab", 10);
+  template.sz_ = 2;
+  parser.sz_ = 10;
+
+  search();
+  out_str_new_line("----------------");
+
+  template.type_ = old;
+}
+
+void tests_search_3() {
+  out_str_new_line("Template: 'aba' | algorithm: std");
+  out_str_new_line("Test Search 3: [Input]   -> aaaaaab");
+  out_str_new_line("Test Search 3: [Exp Out] -> Not found");
+  
+  clear_parser();
+  size_t old = template.type_;
+
+
+  template.flag_loaded_ = 1;
+  template.type_ = STD_ALGO;  
+  strncpy(template.buf_, "aba", 3);
+  strncpy(parser.buf_[1], "aaaaaab", 7);
+  template.sz_ = 3;
+  parser.sz_ = 7;
+
+  search();
+  out_str_new_line("----------------");
+  
+  template.type_ = old;
+}
+
+void tests_search_4() {
+  out_str_new_line("Template: 'aba' | algorithm: bm");
+  out_str_new_line("Test Search 4: [Input]   -> aaaaaab");
+  out_str_new_line("Test Search 4: [Exp Out] -> Not found");
+  
+  clear_parser();
+  size_t old = template.type_;
+
+  template.flag_loaded_ = 1;
+  template.type_ = BM_ALGO;  
+  strncpy(template.buf_, "aba", 3);
+  strncpy(parser.buf_[1], "aaaaaab", 7);
+  template.sz_ = 3;
+  parser.sz_ = 7;
+
+  search();
+  out_str_new_line("----------------");
+
+  template.type_ = old;
+}

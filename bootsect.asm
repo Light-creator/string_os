@@ -25,8 +25,9 @@ _start:
   call read_input
 
 setup_16:
-  movb $0x01, %dl
-  movb $0x00, %dh
+  # read the first sector of the disk
+  movb $0x01, %dl 
+  movb $0x00, %dh 
   movb $0x00, %ch
   movb $0x01, %cl
   movb $0x30, %al
