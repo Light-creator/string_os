@@ -623,11 +623,14 @@ void tests_base() {
   test_titlize_1();
 }
 
-void tests_search() {
-  tests_search_1();
+void tests_search_bm() {
   tests_search_2();
-  tests_search_3();
   tests_search_4();
+}
+
+void tests_search_std() {
+  tests_search_1();
+  tests_search_3();
 }
 
 void shutdown() {
@@ -665,7 +668,8 @@ void handle_line() {
     clear_all();
   } else if(strncmp(parser.buf_[0], "tests", 5) == 0) {
     if(strncmp(parser.buf_[1], "search", 6) == 0) {
-      tests_search();
+      if(strncmp(parser.buf_[2], "bm", 2) == 0) tests_search_bm();
+      else if(strncmp(parser.buf_[2], "std", 3) == 0) tests_search_std();
     } else if(strncmp(parser.buf_[1], "base", 4) == 0){
 
       tests_base();
@@ -761,7 +765,7 @@ void tests_search_1() {
   strncpy(parser.buf_[1], "aaaaaabaab", 10);
   strncpy(template.buf_, "ab", 2);
   template.sz_ = 2;
-  parser.sz_ = 10;
+  parser.sz_ = 1;
 
   search();
   out_str_new_line("----------------");
@@ -777,12 +781,12 @@ void tests_search_2() {
   clear_parser();
   size_t old = template.type_;
   
-  template.flag_loaded_ = 1;
-  template.type_ = STD_ALGO;  
-  strncpy(template.buf_, "ab", 2);
+  template.type_ = BM_ALGO;  
+  strncpy(parser.buf_[1], "ab", 2);
+  create_template();
+
   strncpy(parser.buf_[1], "aaaaaabaab", 10);
-  template.sz_ = 2;
-  parser.sz_ = 10;
+  parser.sz_ = 1;
 
   search();
   out_str_new_line("----------------");
@@ -803,8 +807,8 @@ void tests_search_3() {
   template.type_ = STD_ALGO;  
   strncpy(template.buf_, "aba", 3);
   strncpy(parser.buf_[1], "aaaaaab", 7);
-  template.sz_ = 3;
-  parser.sz_ = 7;
+
+  parser.sz_ = 1;
 
   search();
   out_str_new_line("----------------");
@@ -820,12 +824,12 @@ void tests_search_4() {
   clear_parser();
   size_t old = template.type_;
 
-  template.flag_loaded_ = 1;
   template.type_ = BM_ALGO;  
-  strncpy(template.buf_, "aba", 3);
+  strncpy(parser.buf_[1], "aba", 3);
+  create_template();
+
   strncpy(parser.buf_[1], "aaaaaab", 7);
-  template.sz_ = 3;
-  parser.sz_ = 7;
+  parser.sz_ = 1;
 
   search();
   out_str_new_line("----------------");
